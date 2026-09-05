@@ -8,6 +8,7 @@ import org.ruoyi.common.core.utils.SpringUtils;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.core.task.VirtualThreadTaskExecutor;
 
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
@@ -39,6 +40,7 @@ public class ThreadPoolConfig {
     /**
      * 执行周期性或定时任务
      */
+    @Primary
     @Bean(name = "scheduledExecutorService")
     protected ScheduledExecutorService scheduledExecutorService() {
         // daemon 必须为 true

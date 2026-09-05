@@ -20,6 +20,17 @@ server:
       # 阻塞任务线程池, 当执行类似servlet请求阻塞操作, undertow会从这个线程池中取得线程,它的值设置取决于系统的负载
       worker: 256
 
+# Harness 命令仍受工作区租约、执行计划和工具审批约束；开启后才能验证并运行生成的网站。
+coding:
+  harness:
+    budget:
+      # 模型回合上限；工具额度按每回合最多 3 次保持同比例，避免工具预算先于回合耗尽。
+      max-iterations: 200
+      max-tool-calls: 600
+    tools:
+      execute-process:
+        enabled: true
+
 --- # 小程序对话 WebSocket 兜底默认模型（前端未传 model 且无智能体绑定时使用）
 chat:
   default-model: deepseek-v4-flash
@@ -129,7 +140,6 @@ security:
     - /*/api-docs/**
     - /warm-flow-ui/config
     - /workflow/run
-    - /coding/**
 # 多租户配置
 tenant:
   # 是否开启
@@ -280,7 +290,7 @@ websocket:
 --- # 演示模式配置
 demo:
   # 是否开启演示模式（开启后所有写操作将被拦截）
-  enabled: false
+  enabled: true
   # 提示消息
   message: "演示模式，不允许操作"
   # 排除的路径（这些路径不受演示模式限制）

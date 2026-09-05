@@ -48,11 +48,11 @@ public class McpToolController extends BaseController {
      */
     @SaCheckPermission("mcp:tool:list")
     @GetMapping("/all")
-    public McpToolListResult listAll(
+    public R<McpToolListResult> listAll(
         @RequestParam(required = false) String keyword,
         @RequestParam(required = false) String type,
         @RequestParam(required = false) String status) {
-        return mcpToolService.listTools(keyword, type, status);
+        return R.ok(mcpToolService.listTools(keyword, type, status));
     }
 
     /**

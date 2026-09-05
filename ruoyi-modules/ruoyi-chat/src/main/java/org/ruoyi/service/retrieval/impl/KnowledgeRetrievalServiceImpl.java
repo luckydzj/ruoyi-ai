@@ -21,8 +21,8 @@ import org.ruoyi.mapper.knowledge.KnowledgeFragmentMapper;
 import org.ruoyi.service.rerank.RerankModelService;
 import org.ruoyi.service.retrieval.KnowledgeRetrievalService;
 import org.ruoyi.service.vector.VectorStoreService;
-import org.ruoyi.trace.RagTraceNodeTypes;
-import org.ruoyi.trace.RagTracePayloadBuilder;
+import org.ruoyi.argtrace.RagTraceNodeTypes;
+import org.ruoyi.argtrace.RagTracePayloadBuilder;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
@@ -128,7 +128,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         // 如果启用重排序，适当扩大召回数量
         int originalMaxResults = queryVectorBo.getMaxResults() != null ? queryVectorBo.getMaxResults() : 10;
         int targetMaxResults = originalMaxResults;
-        if (Boolean.TRUE.equals(queryVectorBo.getEnableRerank()) && 
+        if (Boolean.TRUE.equals(queryVectorBo.getEnableRerank()) &&
             StringUtils.isNotBlank(queryVectorBo.getRerankModelName())) {
             targetMaxResults = originalMaxResults * RERANK_EXPANSION_FACTOR;
         }
@@ -137,7 +137,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         if (!Boolean.TRUE.equals(queryVectorBo.getEnableHybrid())) {
             QueryVectorBo vectorQuery = copyOf(queryVectorBo, targetMaxResults);
             List<KnowledgeRetrievalVo> results = vectorStoreService.search(vectorQuery);
-            
+
             // 应用基础相似度阈值过滤(如果有)
             if (queryVectorBo.getSimilarityThreshold() != null) {
                 results = results.stream()
@@ -214,7 +214,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
                 rerankInputPayload);
         try {
             RerankModelService rerankModel = rerankModelFactory.createModel(queryVectorBo.getRerankModelName());
-            
+
             List<String> contents = coarseResults.stream()
                     .map(KnowledgeRetrievalVo::getContent)
                     .collect(Collectors.toList());
@@ -241,7 +241,7 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
 
             // 按新分排序
             reranked.sort((a, b) -> b.getScore().compareTo(a.getScore()));
-            
+
             // 截断到 topN
             List<KnowledgeRetrievalVo> results = reranked.subList(0, Math.min(topN, reranked.size()));
             finishTraceNode(traceNode, TraceConstants.STATUS_SUCCESS, null,
@@ -285,9 +285,9 @@ public class KnowledgeRetrievalServiceImpl implements KnowledgeRetrievalService 
         List<KnowledgeRetrievalVo> fusedResults = new ArrayList<>();
         for (Map.Entry<String, KnowledgeRetrievalVo> entry : allMap.entrySet()) {
             String id = entry.getKey();
-            double finalScore = (1 - alpha) * vectorScores.getOrDefault(id, 0.0) + 
+            double finalScore = (1 - alpha) * vectorScores.getOrDefault(id, 0.0) +
                                alpha * keywordScores.getOrDefault(id, 0.0);
-            
+
             KnowledgeRetrievalVo vo = entry.getValue();
             vo.setScore(finalScore * 60.0); // 归一化缩放
             fusedResults.add(vo);

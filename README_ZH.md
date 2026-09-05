@@ -23,6 +23,14 @@
 </div>
 
 
+## 🚀 演示地址
+
+| 服务 | 访问地址 | 默认账号 |
+|---|---|---|
+| 管理端 | http://129.226.199.247:25666 | admin / admin123 |
+| 用户端 | http://129.226.199.247:25137 | admin / admin123 |
+| 商业版 | https://web.ruoyiai.chat | 微信扫码登录 |
+
 ## ✨ 核心亮点
 
 |    模块     | 现有能力
@@ -68,23 +76,72 @@
 ### 方式一：一键启动所有服务（推荐）
 
 使用 `docker-compose-all.yaml` 可以一键启动所有服务（包括后端、管理端、用户端及依赖服务）：
+#### 环境要求
 
+- Docker Engine（Linux/macOS）或 Docker Desktop（Windows）
+- Docker Compose V2
+
+#### Linux / macOS
 ```bash
-# 克隆仓库
-git clone https://github.com/ageerle/ruoyi-ai.git
+# 克隆 v3.1.0 版本
+git clone --depth 1 --branch v3.1.0 https://github.com/ageerle/ruoyi-ai.git
 cd ruoyi-ai
 
-# 启动所有服务（从镜像仓库拉取预构建镜像）
-docker-compose -f docker-compose-all.yaml up -d
+# 固定镜像版本。GHCR 镜像已公开，无需 docker login
+cp docs/docker/ruoyi-ai/.env.example docs/docker/ruoyi-ai/.env
+sed -i 's/^RUIYI_VERSION=.*/RUIYI_VERSION=v3.1.0/' docs/docker/ruoyi-ai/.env
+
+# 从 GHCR 拉取预构建镜像并启动全部服务
+docker compose --env-file docs/docker/ruoyi-ai/.env \
+  -f docs/docker/ruoyi-ai/docker-compose-all.yaml pull
+docker compose --env-file docs/docker/ruoyi-ai/.env \
+  -f docs/docker/ruoyi-ai/docker-compose-all.yaml up -d
 
 # 查看服务状态
-docker-compose -f docker-compose-all.yaml ps
+docker compose --env-file docs/docker/ruoyi-ai/.env \
+  -f docs/docker/ruoyi-ai/docker-compose-all.yaml ps
 
-# 访问服务
-# 管理端: http://localhost:25666 (admin / admin123)
-# 用户端: http://localhost:25137
-# 后端API: http://localhost:26039
+# 访问服务（将 SERVER_IP 替换为服务器地址）
+# 管理端: http://SERVER_IP:25666 (admin / admin123)
+# 用户端: http://SERVER_IP:25137
+# 后端API: http://SERVER_IP:26039
 ```
+
+#### Windows PowerShell
+如果您使用 Windows + Docker Desktop，可以使用 PowerShell 执行以下命令：
+```PowerShell
+# 克隆 v3.1.0 版本
+git clone --depth 1 --branch v3.1.0 https://github.com/ageerle/ruoyi-ai.git
+cd ruoyi-ai
+
+# 创建环境配置文件
+Copy-Item docs\docker\ruoyi-ai\.env.example docs\docker\ruoyi-ai\.env
+
+# 固定镜像版本
+(Get-Content docs\docker\ruoyi-ai\.env) `
+  -replace '^RUIYI_VERSION=.*', 'RUIYI_VERSION=v3.1.0' |
+  Set-Content docs\docker\ruoyi-ai\.env
+
+# 查看环境配置
+Get-Content docs\docker\ruoyi-ai\.env
+
+# 从 GHCR 拉取预构建镜像并启动全部服务
+docker compose --env-file docs\docker\ruoyi-ai\.env `
+  -f docs\docker\ruoyi-ai\docker-compose-all.yaml pull
+docker compose --env-file docs\docker\ruoyi-ai\.env `
+  -f docs\docker\ruoyi-ai\docker-compose-all.yaml up -d
+
+# 查看服务状态
+docker compose --env-file docs\docker\ruoyi-ai\.env `
+  -f docs\docker\ruoyi-ai\docker-compose-all.yaml ps
+```
+
+默认 Compose 还会发布 MySQL（`23306`）、Redis（`26379`）、Weaviate（`28080`）和
+MinIO（`29000`/`29090`）端口。生产环境请修改 MySQL 和 MinIO 默认密码，并通过防火墙或反向代理只开放应用端口。
+
+升级到其他已发布版本时，修改 `docs/docker/ruoyi-ai/.env` 中的 `RUIYI_VERSION`，然后使用相同的
+`--env-file` 和 `-f` 参数执行 `docker compose pull`、`docker compose up -d`。除非确定要删除持久化数据卷，
+不要执行 `docker compose down -v`。
 
 ### 方式二：分步部署（源码编译）
 
@@ -141,36 +198,6 @@ docker-compose up -d --build
 | Weaviate | 28080 | 28080 | 向量数据库 |
 | MinIO API | 29000 | 9000 | 对象存储 API |
 | MinIO Console | 29090 | 9090 | 对象存储控制台 |
-
-### 镜像仓库
-
-所有镜像托管在阿里云容器镜像服务：
-
-```
-crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai
-```
-
-可用镜像：
-- `mysql:v3` - MySQL 数据库（包含初始化 SQL）
-- `redis:6.2` - Redis 缓存
-- `weaviate:1.30.0` - 向量数据库
-- `minio:latest` - 对象存储
-- `ruoyi-ai-backend:latest` - 后端服务
-- `ruoyi-ai-admin:latest` - 管理端前端
-- `ruoyi-ai-web:latest` - 用户端前端
-
-### 常用命令
-
-```bash
-# 停止所有服务
-docker-compose -f docker-compose-all.yaml down
-
-# 查看服务日志
-docker-compose -f docker-compose-all.yaml logs -f [服务名]
-
-# 重启某个服务
-docker-compose -f docker-compose-all.yaml restart [服务名]
-```
 
 ## 📚 使用文档
 
@@ -235,9 +262,9 @@ docker-compose -f docker-compose-all.yaml restart [服务名]
 <em>邀请进群学习</em>
 </td>
 <td align="center">
-<img src="docs/image/wx06.png" alt="微信二维码" width="200" height="200"><br>
-<strong>微信技术交流群</strong><br>
-<em>技术讨论</em>
+<img src="docs/image/douyin.png" alt="抖音二维码" width="200" height="200"><br>
+<strong>抖音视频教程</strong><br>
+<em>打开抖音扫一扫，关注查看视频教程</em>
 </td>
 <td align="center">
 <img src="docs/image/qq.png" alt="QQ群二维码" width="200" height="200"><br>

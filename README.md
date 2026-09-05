@@ -23,7 +23,13 @@
 </div>
 
 
+## 🚀 Live Demo
 
+| Service | URL | Default Account |
+|---|---|---|
+| Admin Panel | http://129.226.199.247:25666 | admin / admin123 |
+| User Frontend | http://129.226.199.247:25137 | admin / admin123 |
+| Commercial Edition | https://web.ruoyiai.chat | WeChat QR code login |
 
 ## ✨ Core Features
 
@@ -69,23 +75,77 @@ This project provides two Docker deployment methods:
 ### Method 1: One-click Start All Services (Recommended)
 
 Use `docker-compose-all.yaml` to start all services at once (including backend, admin panel, user frontend, and dependencies):
+#### Requirements
+- Docker Engine（Linux/macOS）或 Docker Desktop（Windows）
+- Docker Compose V2
 
+#### Linux / macOS
 ```bash
-# Clone the repository
-git clone https://github.com/ageerle/ruoyi-ai.git
+
+# Clone the v3.1.0 release
+git clone --depth 1 --branch v3.1.0 https://github.com/ageerle/ruoyi-ai.git
 cd ruoyi-ai
 
-# Start all services (pull pre-built images from registry)
-docker-compose -f docker-compose-all.yaml up -d
+# Pin the image version. Public GHCR images do not require docker login.
+cp docs/docker/ruoyi-ai/.env.example docs/docker/ruoyi-ai/.env
+sed -i 's/^RUIYI_VERSION=.*/RUIYI_VERSION=v3.1.0/' docs/docker/ruoyi-ai/.env
+
+# Pull pre-built images from GHCR and start all services
+docker compose --env-file docs/docker/ruoyi-ai/.env \
+  -f docs/docker/ruoyi-ai/docker-compose-all.yaml pull
+docker compose --env-file docs/docker/ruoyi-ai/.env \
+  -f docs/docker/ruoyi-ai/docker-compose-all.yaml up -d
 
 # Check service status
-docker-compose -f docker-compose-all.yaml ps
+docker compose --env-file docs/docker/ruoyi-ai/.env \
+  -f docs/docker/ruoyi-ai/docker-compose-all.yaml ps
 
-# Access services
-# Admin Panel: http://localhost:25666 (admin / admin123)
-# User Frontend: http://localhost:25137
-# Backend API: http://localhost:26039
+# Access services (replace SERVER_IP with the server address)
+# Admin Panel: http://SERVER_IP:25666 (admin / admin123)
+# User Frontend: http://SERVER_IP:25137
+# Backend API: http://SERVER_IP:26039
 ```
+
+#### Windows PowerShell
+If you are using Windows with Docker Desktop, you can use PowerShell to execute the following commands:
+
+```PowerShell
+
+# Clone the v3.1.0 release
+git clone --depth 1 --branch v3.1.0 https://github.com/ageerle/ruoyi-ai.git
+cd ruoyi-ai
+
+# Create the environment configuration file
+Copy-Item docs\docker\ruoyi-ai\.env.example docs\docker\ruoyi-ai\.env
+
+# Pin the image version
+(Get-Content docs\docker\ruoyi-ai\.env) `
+  -replace '^RUIYI_VERSION=.*', 'RUIYI_VERSION=v3.1.0' |
+  Set-Content docs\docker\ruoyi-ai\.env
+
+# Check the environment configuration
+Get-Content docs\docker\ruoyi-ai\.env
+
+# Pull pre-built images from GHCR and start all services
+docker compose --env-file docs\docker\ruoyi-ai\.env `
+  -f docs\docker\ruoyi-ai\docker-compose-all.yaml pull
+docker compose --env-file docs\docker\ruoyi-ai\.env `
+  -f docs\docker\ruoyi-ai\docker-compose-all.yaml up -d
+
+# Check service status
+docker compose --env-file docs\docker\ruoyi-ai\.env `
+  -f docs\docker\ruoyi-ai\docker-compose-all.yaml ps
+```
+
+The default Compose file also publishes MySQL (`23306`), Redis (`26379`),
+Weaviate (`28080`), and MinIO (`29000`/`29090`). For production deployments,
+change the default MySQL and MinIO passwords and expose only the application
+ports through the firewall or a reverse proxy.
+
+To upgrade to another published release, update `RUIYI_VERSION` in
+`docs/docker/ruoyi-ai/.env`, then run `docker compose pull` and
+`docker compose up -d` with the same `--env-file` and `-f` options. Do not use
+`docker compose down -v` unless you intend to delete persistent data volumes.
 
 ### Method 2: Step-by-step Deployment (Source Build)
 
@@ -142,36 +202,6 @@ docker-compose up -d --build
 | Weaviate | 28080 | 28080 | Vector database |
 | MinIO API | 29000 | 9000 | Object storage API |
 | MinIO Console | 29090 | 9090 | Object storage console |
-
-### Image Registry
-
-All images are hosted on Alibaba Cloud Container Registry:
-
-```
-crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai
-```
-
-Available images:
-- `mysql:v3` - MySQL database (includes initialization SQL)
-- `redis:6.2` - Redis cache
-- `weaviate:1.30.0` - Vector database
-- `minio:latest` - Object storage
-- `ruoyi-ai-backend:latest` - Backend service
-- `ruoyi-ai-admin:latest` - Admin frontend
-- `ruoyi-ai-web:latest` - User frontend
-
-### Common Commands
-
-```bash
-# Stop all services
-docker-compose -f docker-compose-all.yaml down
-
-# View service logs
-docker-compose -f docker-compose-all.yaml logs -f [service-name]
-
-# Restart a service
-docker-compose -f docker-compose-all.yaml restart [service-name]
-```
 
 ## 📚 Documentation
 
@@ -234,9 +264,9 @@ Enjoy ByteDance's in-house Doubao models plus full-power open-source SOTA models
 <em>Join group for learning</em>
 </td>
 <td align="center">
-<img src="docs/image/wx06.png" alt="WeChat QR Code" width="200" height="200"><br>
-<strong>WeChat Tech Exchange Group</strong><br>
-<em>Technical discussion</em>
+<img src="docs/image/douyin.png" alt="Douyin QR Code" width="200" height="200"><br>
+<strong>Douyin Video Tutorials</strong><br>
+<em>Open Douyin, scan & follow to watch video tutorials</em>
 </td>
 <td align="center">
 <img src="docs/image/qq.png" alt="QQ Group QR Code" width="200" height="200"><br>

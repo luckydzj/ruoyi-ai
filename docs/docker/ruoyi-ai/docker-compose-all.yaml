@@ -10,13 +10,13 @@
 #   - RuoYi-Admin (管理端前端)
 #   - RuoYi-Web (用户端前端)
 #
-# 镜像仓库地址: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai
+# 镜像仓库地址: ghcr.io/ageerle
 
 services:
   # ==================== MySQL 数据库 ====================
   mysql:
-    # 阿里云镜像地址（包含初始化SQL）
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/mysql:v3
+    # GHCR 镜像（包含初始化SQL）
+    image: ghcr.io/${IMAGE_OWNER:-ageerle}/ruoyi-ai-mysql:${RUIYI_VERSION:-latest}
     container_name: ruoyi-ai-mysql
     restart: always
     ports:
@@ -41,7 +41,7 @@ services:
 
   # ==================== Redis 缓存 ====================
   redis:
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/redis:6.2
+    image: redis:6.2
     container_name: ruoyi-ai-redis
     restart: always
     ports:
@@ -59,7 +59,7 @@ services:
 
   # ==================== Weaviate 向量数据库 ====================
   weaviate:
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/weaviate:1.30.0
+    image: semitechnologies/weaviate:1.30.0
     container_name: ruoyi-ai-weaviate
     restart: always
     ports:
@@ -78,7 +78,7 @@ services:
 
   # ==================== MinIO 对象存储 ====================
   minio:
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/minio:latest
+    image: minio/minio:latest
     container_name: ruoyi-ai-minio
     restart: always
     ports:
@@ -95,7 +95,7 @@ services:
 
   # ==================== RuoYi-AI 后端服务 ====================
   backend:
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/ruoyi-ai-backend:latest
+    image: ghcr.io/${IMAGE_OWNER:-ageerle}/ruoyi-ai-backend:${RUIYI_VERSION:-latest}
     container_name: ruoyi-ai-backend
     restart: always
     ports:
@@ -112,6 +112,12 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_DATA_REDIS_DATABASE: 0
+      # Allow large presentation files for knowledge-base ingestion.
+      SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: 600MB
+      SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: 620MB
+      VECTOR_STORE_TYPE: weaviate
+      VECTOR_STORE_WEAVIATE_PROTOCOL: http
+      VECTOR_STORE_WEAVIATE_HOST: weaviate:8080
       # 日志配置
       LOGGING_LEVEL_ORG_RUOYI: info
       LOGGING_LEVEL_ORG_SPRINGFRAMEWORK: warn
@@ -129,7 +135,7 @@ services:
 
   # ==================== RuoYi-AI 管理端前端 ====================
   admin-frontend:
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/ruoyi-ai-admin:latest
+    image: ghcr.io/${IMAGE_OWNER:-ageerle}/ruoyi-ai-admin:${RUIYI_VERSION:-latest}
     container_name: ruoyi-ai-admin
     restart: always
     ports:
@@ -154,7 +160,7 @@ services:
 
   # ==================== RuoYi-AI 用户端前端 ====================
   web-frontend:
-    image: crpi-31mraxd99y2gqdgr.cn-beijing.personal.cr.aliyuncs.com/ruoyi_ai/ruoyi-ai-web:latest
+    image: ghcr.io/${IMAGE_OWNER:-ageerle}/ruoyi-ai-web:${RUIYI_VERSION:-latest}
     container_name: ruoyi-ai-web
     restart: always
     ports:

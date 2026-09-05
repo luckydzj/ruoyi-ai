@@ -8,11 +8,6 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.SystemMessage;
 import dev.langchain4j.data.message.UserMessage;
-import dev.langchain4j.mcp.McpToolProvider;
-import dev.langchain4j.mcp.client.DefaultMcpClient;
-import dev.langchain4j.mcp.client.McpClient;
-import dev.langchain4j.mcp.client.transport.McpTransport;
-import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -22,9 +17,6 @@ import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
 import dev.langchain4j.rag.content.Content;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.service.tool.ToolProvider;
-import dev.langchain4j.skills.FileSystemSkill;
-import dev.langchain4j.skills.FileSystemSkillLoader;
-import dev.langchain4j.skills.shell.ShellSkills;
 import dev.langchain4j.rag.AugmentationRequest;
 import dev.langchain4j.rag.AugmentationResult;
 import dev.langchain4j.rag.DefaultRetrievalAugmentor;
@@ -37,7 +29,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.ruoyi.agent.ChartGenerationAgent;
 import org.ruoyi.agent.ChitChatAgent;
 import org.ruoyi.agent.EchartsAgent;
-import org.ruoyi.agent.SkillsAgent;
 import org.ruoyi.agent.SqlAgent;
 import org.ruoyi.agent.WebSearchAgent;
 import org.ruoyi.agent.tool.ExecuteSqlQueryTool;
@@ -66,7 +57,6 @@ import org.ruoyi.common.trace.domain.TraceNode;
 import org.ruoyi.common.trace.domain.TraceRun;
 import org.ruoyi.common.trace.service.TraceRecordService;
 import org.ruoyi.common.trace.util.TracePayloadUtils;
-import org.ruoyi.config.agent.SkillsPathResolver;
 import org.ruoyi.domain.bo.vector.QueryVectorBo;
 import org.ruoyi.domain.vo.agent.AgentVo;
 import org.ruoyi.domain.vo.knowledge.KnowledgeInfoVo;
@@ -75,13 +65,14 @@ import org.ruoyi.mcp.service.core.LangChain4jMcpToolProviderService;
 import org.ruoyi.observability.*;
 import org.ruoyi.service.agent.IAgentService;
 import org.ruoyi.service.chat.AbstractChatService;
+import org.ruoyi.service.chat.ChatSessionOwnershipGuard;
 import org.ruoyi.service.chat.IChatMessageService;
 import org.ruoyi.service.chat.impl.memory.PersistentChatMemoryStore;
 import org.ruoyi.service.knowledge.IKnowledgeInfoService;
 import org.ruoyi.service.retrieval.KnowledgeRetrievalService;
 import org.ruoyi.service.knowledge.retriever.CustomVectorRetriever;
-import org.ruoyi.trace.RagTraceNodeTypes;
-import org.ruoyi.trace.RagTracePayloadBuilder;
+import org.ruoyi.argtrace.RagTraceNodeTypes;
+import org.ruoyi.argtrace.RagTracePayloadBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -124,6 +115,8 @@ public class ChatServiceFacade implements IChatService {
 
     private final IChatMessageService chatMessageService;
 
+    private final ChatSessionOwnershipGuard chatSessionOwnershipGuard;
+
     private final IWorkFlowStarterService workFlowStarterService;
 
 
@@ -152,6 +145,7 @@ public class ChatServiceFacade implements IChatService {
     public SseEmitter sseChat(ChatRequest chatRequest) {
         Long userId = LoginHelper.getUserId();
         String tokenValue = StpUtil.getTokenValue();
+        chatSessionOwnershipGuard.requireOwned(userId, chatRequest.getSessionId());
 
         boolean workflowMode = Boolean.TRUE.equals(chatRequest.getEnableWorkFlow());
         boolean agentMode = chatRequest.getAgentId() != null;
@@ -288,34 +282,28 @@ public class ChatServiceFacade implements IChatService {
         Long userId = chatRequest.getUserId();
         String sessionId = String.valueOf(chatRequest.getSessionId());
 
-        // 工具装配：智能体有关联工具ID时按ID装配，否则回退到原有硬编码 MCP 客户端
-        ToolProvider toolProvider;
+        // Only explicitly configured legacy MCP tools are installed. The old implicit
+        // Playwright/filesystem fallback bypassed Harness leases and approvals.
+        ToolProvider toolProvider = null;
         if (agentVo != null && agentVo.getMcpToolIds() != null && !agentVo.getMcpToolIds().isEmpty()) {
             toolProvider = langChain4jMcpToolProviderService.getToolProvider(agentVo.getMcpToolIds());
-        } else {
-            toolProvider = buildDefaultMcpToolProvider(sessionId);
         }
-
-        // Skills 装配：智能体有勾选技能名时按名过滤磁盘 skills，否则加载全部
-        ShellSkills skills = buildShellSkills(agentVo);
 
         // 构建子 Agent
-        WebSearchAgent searchAgent  = AgenticServices.agentBuilder(WebSearchAgent.class)
+        var searchAgentBuilder = AgenticServices.agentBuilder(WebSearchAgent.class)
             .chatModel(plannerModel)
-            .toolProvider(toolProvider)
-            .listener(new MyAgentListener())
-            .build();
-
-        // SkillsAgent：仅当有可用 skills 时才注入 systemMessage + toolProvider
-        var skillsAgentBuilder = AgenticServices.agentBuilder(SkillsAgent.class)
-            .chatModel(plannerModel);
-        if (skills != null) {
-            skillsAgentBuilder
-                .systemMessage("You have access to the following skills:\n" + skills.formatAvailableSkills()
-                    + "\nWhen the user's request relates to one of these skills, activate it first using the `activate_skill` tool before proceeding.")
-                .toolProvider(skills.toolProvider());
+            .listener(new MyAgentListener());
+        if (toolProvider != null) {
+            searchAgentBuilder.toolProvider(toolProvider);
         }
-        SkillsAgent skillsAgent = skillsAgentBuilder.build();
+        WebSearchAgent searchAgent = searchAgentBuilder.build();
+
+        // Disk skills previously exposed unrestricted run_shell_command. Coding skills now live
+        // behind the Harness catalog, policy engine, and per-call approval flow.
+        if (agentVo != null && agentVo.getSkillNames() != null
+            && !agentVo.getSkillNames().isEmpty()) {
+            log.warn("Legacy shell-backed skills are disabled; use the coding Harness skill runtime");
+        }
 
         // 构建子 Agent 3: SqlAgent - 负责数据库查询
         SqlAgent sqlAgent = AgenticServices.agentBuilder(SqlAgent.class)
@@ -345,10 +333,10 @@ public class ChatServiceFacade implements IChatService {
         // 构建监督者 Agent - 管理多个子 Agent
         var supervisorBuilder = AgenticServices.supervisorBuilder()
             .chatModel(plannerModel)
-            .subAgents(skillsAgent, searchAgent, sqlAgent, chartGenerationAgent, echartsAgent, chitChatAgent)
+            .subAgents(searchAgent, sqlAgent, chartGenerationAgent, echartsAgent, chitChatAgent)
             .supervisorContext("仅当请求是问候或简单闲聊、不需要任何数据、搜索、技能或图表时,才使用 chitChatAgent;"
                 + "其余情况必须使用对应的专业 Agent")
-            .responseStrategy(SupervisorResponseStrategy.SUMMARY);
+            .responseStrategy(SupervisorResponseStrategy.LAST);
         SupervisorAgent supervisor = supervisorBuilder.build();
 
         // 知识库增强：智能体绑定了知识库时，对 supervisor 输入做一次 RAG 增强（全程唯一一次检索）
@@ -501,67 +489,6 @@ public class ChatServiceFacade implements IChatService {
             this.businessId = businessId;
             this.tenantId = tenantId;
         }
-    }
-
-    /**
-     * 兜底 MCP 工具装配（无智能体时使用，保留原有 3 个硬编码客户端逻辑）
-     *
-     * @param sessionId 会话ID，用于 MCP 工具事件按会话推送 SSE
-     */
-    private ToolProvider buildDefaultMcpToolProvider(String sessionId) {
-        String npxCommand = resolveNpxCommand();
-        McpTransport playwrightTransport = new StdioMcpTransport.Builder()
-            .command(List.of(npxCommand, "-y", "@playwright/mcp@latest"))
-            .logEvents(true)
-            .build();
-        McpClient playwrightMcpClient = new DefaultMcpClient.Builder()
-            .transport(playwrightTransport)
-            .listener(new MyMcpClientListener(sessionId))
-            .build();
-
-        String userDir = System.getProperty("user.dir");
-        McpTransport filesystemTransport = new StdioMcpTransport.Builder()
-            .command(List.of(npxCommand, "-y",
-                "@modelcontextprotocol/server-filesystem", userDir))
-            .logEvents(true)
-            .build();
-        McpClient filesystemMcpClient = new DefaultMcpClient.Builder()
-            .transport(filesystemTransport)
-            .listener(new MyMcpClientListener(sessionId))
-            .build();
-
-        return McpToolProvider.builder()
-            .mcpClients(List.of(playwrightMcpClient, filesystemMcpClient))
-            .build();
-    }
-
-    private String resolveNpxCommand() {
-        String configured = System.getProperty("mcp.npx.command");
-        if (StringUtils.isNotBlank(configured)) return configured;
-        String fromEnv = System.getenv("MCP_NPX_COMMAND");
-        if (StringUtils.isNotBlank(fromEnv)) return fromEnv;
-        return System.getProperty("os.name", "").toLowerCase().contains("win") ? "npx.cmd" : "npx";
-    }
-
-    /**
-     * 装配磁盘 ShellSkills：智能体勾选了技能名时按名过滤，否则加载全部。
-     * 无 skills 时返回 null（调用方据此跳过 SkillsAgent 的 toolProvider 注入）
-     */
-    private ShellSkills buildShellSkills(AgentVo agentVo) {
-        java.nio.file.Path skillsPath = SkillsPathResolver.resolveSkillsPath();
-        List<FileSystemSkill> skillsList = FileSystemSkillLoader.loadSkills(skillsPath);
-        if (skillsList == null || skillsList.isEmpty()) {
-            return null;
-        }
-        if (agentVo != null && agentVo.getSkillNames() != null && !agentVo.getSkillNames().isEmpty()) {
-            skillsList = skillsList.stream()
-                .filter(s -> agentVo.getSkillNames().contains(s.name()))
-                .toList();
-            if (skillsList.isEmpty()) {
-                return null;
-            }
-        }
-        return ShellSkills.from(skillsList);
     }
 
     /**

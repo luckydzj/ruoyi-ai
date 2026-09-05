@@ -91,7 +91,6 @@ public class AuthDingTalkV2Request extends AuthDefaultRequest {
 
             authToken.setOpenId(object.has("openId") ? object.get("openId").asText() : null);
             authToken.setUnionId(object.has("unionId") ? object.get("unionId").asText() : null);
-            // rawUserInfo 为 JustAuth 的 fastjson 类型字段, 项目内无消费方, 不再设置
             return AuthUser.builder()
                 .uuid(object.has("unionId") ? object.get("unionId").asText() : null)
                 .username(object.has("nick") ? object.get("nick").asText() : null)

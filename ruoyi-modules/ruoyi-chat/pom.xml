@@ -84,6 +84,13 @@
             <artifactId>HikariCP</artifactId>
         </dependency>
 
+        <!-- Pure-Java, read-only worktree inspection for the shell-free coding Harness. -->
+        <dependency>
+            <groupId>org.eclipse.jgit</groupId>
+            <artifactId>org.eclipse.jgit</artifactId>
+            <version>7.6.0.202603022253-r</version>
+        </dependency>
+
         <!--文档解析-->
         <dependency>
             <groupId>dev.langchain4j</groupId>

@@ -1,6 +1,8 @@
 package org.ruoyi.service.coding;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 
 /**
@@ -11,9 +13,9 @@ import java.nio.file.Path;
  *
  * <p>实现要点：
  * <ul>
- *   <li>{@code root.toRealPath()} 解析符号链接（防软链接逃逸）</li>
- *   <li>{@code target.normalize()} 消除 {@code ..} 穿越段</li>
- *   <li>{@code startsWith} 是 Path 段前缀匹配，非字符串前缀（{@code /workspace/abc} 不会误判成 {@code /workspace-evil}）</li>
+ *   <li>词法范围检查拦截外部绝对路径和 {@code ..} 穿越</li>
+ *   <li>现存目标直接校验其真实路径</li>
+ *   <li>待创建目标校验最近的现存父链，拦截软链接、junction 或 reparse point 逃逸</li>
  * </ul>
  *
  * @author ageerle
@@ -31,20 +33,45 @@ public final class WorkspaceGuard {
      * @return true 表示在 workspace 内，安全
      */
     public static boolean isWithinWorkspace(Path root, Path target) {
+        if (root == null || target == null) {
+            return false;
+        }
+
         try {
-            Path realRoot = root.toRealPath().normalize();
-            Path realTarget = target.normalize();
-            return realTarget.startsWith(realRoot);
-        } catch (IOException e) {
-            // 目标路径不存在或无法解析（如新建文件前其父目录链中有不存在的段）
-            // 退化为 normalize 后做段前缀匹配，仍能拦住明显的越界
-            try {
-                Path realRoot = root.toRealPath().normalize();
-                Path normalizedTarget = target.normalize();
-                return normalizedTarget.startsWith(realRoot);
-            } catch (IOException ignore) {
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            Path normalizedTarget = target.isAbsolute()
+                ? target.toAbsolutePath().normalize()
+                : normalizedRoot.resolve(target).normalize();
+
+            // 先用调用方看到的 workspace 路径做词法边界检查。
+            if (!normalizedTarget.startsWith(normalizedRoot)) {
                 return false;
             }
+
+            Path realRoot = normalizedRoot.toRealPath().normalize();
+            Path nearestExisting = nearestExistingAncestor(normalizedTarget);
+            Path realExisting = nearestExisting.toRealPath().normalize();
+            return realExisting.startsWith(realRoot);
+        } catch (IOException | SecurityException e) {
+            // 无法确定真实路径时必须 fail closed，不再退化为纯字符串判断。
+            return false;
         }
+    }
+
+    /**
+     * 查找目标或其父链中最近的现存路径。
+     *
+     * <p>{@link LinkOption#NOFOLLOW_LINKS} 可识别悬空软链接；随后的
+     * {@code toRealPath()} 会解析软链接以及 Windows junction/reparse point。
+     */
+    private static Path nearestExistingAncestor(Path target) throws IOException {
+        Path current = target;
+        while (current != null) {
+            if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        throw new IOException("Target has no existing ancestor: " + target);
     }
 }

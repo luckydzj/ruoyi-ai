@@ -23,6 +23,9 @@ target/
 .idea
 .claude
 .github
+!.github/
+!.github/workflows/
+!.github/workflows/**
 *.iws
 *.iml
 *.ipr

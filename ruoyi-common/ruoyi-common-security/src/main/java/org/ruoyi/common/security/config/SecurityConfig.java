@@ -9,6 +9,7 @@ import cn.dev33.satoken.router.SaRouter;
 import cn.dev33.satoken.stp.StpUtil;
 import cn.dev33.satoken.util.SaResult;
 import cn.dev33.satoken.util.SaTokenConsts;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -50,9 +51,11 @@ public class SecurityConfig implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         // 注册路由拦截器，自定义验证规则
         registry.addInterceptor(new SaInterceptor(handler -> {
+                HttpServletRequest request = ServletUtils.getRequest();
                 // 异步线程中 SaToken 上下文不存在，跳过检查
                 // 这避免了 SSE 流式响应完成后 emitter.complete() 触发的问题
-                if (SaTokenContextForThreadLocalStaff.getModelBoxOrNull() == null) {
+                if (request.getDispatcherType() != DispatcherType.REQUEST
+                    || SaTokenContextForThreadLocalStaff.getModelBoxOrNull() == null) {
                     return;
                 }
                 AllUrlHandler allUrlHandler = SpringUtils.getBean(AllUrlHandler.class);
@@ -62,9 +65,6 @@ public class SecurityConfig implements WebMvcConfigurer {
                     .match(allUrlHandler.getUrls())
                     // 对未排除的路径进行检查
                     .check(() -> {
-                        HttpServletRequest request = ServletUtils.getRequest();
-                        HttpServletResponse response = ServletUtils.getResponse();
-                        response.setContentType(SaTokenConsts.CONTENT_TYPE_APPLICATION_JSON);
                         // 检查是否登录 是否有token
                         StpUtil.checkLogin();
 

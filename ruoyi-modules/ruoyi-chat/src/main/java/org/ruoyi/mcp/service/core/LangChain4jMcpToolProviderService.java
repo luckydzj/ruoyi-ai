@@ -9,7 +9,10 @@ import dev.langchain4j.mcp.client.McpClient;
 import dev.langchain4j.mcp.client.transport.McpTransport;
 import dev.langchain4j.mcp.client.transport.http.StreamableHttpMcpTransport;
 import dev.langchain4j.mcp.client.transport.stdio.StdioMcpTransport;
+import dev.langchain4j.service.tool.AiServiceTool;
 import dev.langchain4j.service.tool.ToolProvider;
+import dev.langchain4j.service.tool.ToolProviderResult;
+import dev.langchain4j.service.tool.ToolService;
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,13 +22,15 @@ import org.ruoyi.mapper.mcp.McpToolMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * LangChain4j MCP 工具提供者服务
- * 从数据库读取 MCP 工具配置，创建 LangChain4j 的 McpToolProvider 供 Agent 使用
+ * LangChain4j 工具提供者服务
+ * 从数据库读取工具配置，将 BUILTIN、LOCAL、REMOTE 工具统一转换为 ToolProvider 供 Agent 使用
  *
  * @author ruoyi team
  */
@@ -44,6 +49,7 @@ public class LangChain4jMcpToolProviderService {
     private static final long DISABLE_DURATION = 5 * 60 * 1000;
     private final McpToolMapper mcpToolMapper;
     private final ObjectMapper objectMapper;
+    private final BuiltinToolRegistry builtinToolRegistry;
     /**
      * 缓存活跃的 MCP Client
      */
@@ -69,28 +75,24 @@ public class LangChain4jMcpToolProviderService {
      */
     public ToolProvider getToolProvider(List<Long> toolIds) {
         if (toolIds == null || toolIds.isEmpty()) {
-            return McpToolProvider.builder().build();
+            return emptyToolProvider();
         }
 
-        List<McpClient> clients = new ArrayList<>();
-        for (Long toolId : toolIds) {
-            try {
-                McpClient client = getOrCreateClient(toolId);
-                if (client != null) {
-                    clients.add(client);
-                }
-            } catch (Exception e) {
-                log.error("Failed to create MCP client for tool {}: {}", toolId, e.getMessage());
-            }
+        List<Long> distinctToolIds = toolIds.stream()
+            .filter(Objects::nonNull)
+            .distinct()
+            .toList();
+        if (distinctToolIds.isEmpty()) {
+            return emptyToolProvider();
         }
 
-        if (clients.isEmpty()) {
-            return McpToolProvider.builder().build();
-        }
+        List<McpTool> enabledTools = mcpToolMapper.selectList(
+            new LambdaQueryWrapper<McpTool>()
+                .in(McpTool::getId, distinctToolIds)
+                .eq(McpTool::getStatus, McpToolStatus.ENABLED.getValue())
+        );
 
-        return McpToolProvider.builder()
-            .mcpClients(clients)
-            .build();
+        return buildToolProvider(orderByRequestedIds(enabledTools, distinctToolIds));
     }
 
     /**
@@ -105,14 +107,10 @@ public class LangChain4jMcpToolProviderService {
         );
 
         if (enabledTools.isEmpty()) {
-            return McpToolProvider.builder().build();
+            return emptyToolProvider();
         }
 
-        List<Long> toolIds = enabledTools.stream()
-            .map(McpTool::getId)
-            .toList();
-
-        return getToolProvider(toolIds);
+        return buildToolProvider(enabledTools);
     }
 
     /**
@@ -123,7 +121,7 @@ public class LangChain4jMcpToolProviderService {
      */
     public ToolProvider getToolProviderByNames(List<String> toolNames) {
         if (toolNames == null || toolNames.isEmpty()) {
-            return McpToolProvider.builder().build();
+            return emptyToolProvider();
         }
 
         List<McpTool> tools = mcpToolMapper.selectList(
@@ -133,21 +131,137 @@ public class LangChain4jMcpToolProviderService {
         );
 
         if (tools.isEmpty()) {
-            return McpToolProvider.builder().build();
+            return emptyToolProvider();
         }
 
-        List<Long> toolIds = tools.stream()
-            .map(McpTool::getId)
-            .toList();
+        return buildToolProvider(tools);
+    }
 
-        return getToolProvider(toolIds);
+    /**
+     * 按配置类型构建统一的工具提供者。
+     * BUILTIN 工具会转换为 LangChain4j 原生工具，LOCAL/REMOTE 工具会转换为 MCP Client，
+     * 调用方无需再区分工具类型。
+     */
+    private ToolProvider buildToolProvider(List<McpTool> tools) {
+        if (tools == null || tools.isEmpty()) {
+            return emptyToolProvider();
+        }
+
+        List<McpClient> clients = new ArrayList<>();
+        List<AiServiceTool> builtinTools = new ArrayList<>();
+
+        for (McpTool tool : tools) {
+            if (tool == null || !McpToolStatus.isEnabled(tool.getStatus())) {
+                continue;
+            }
+
+            if (BuiltinToolRegistry.TYPE_BUILTIN.equals(tool.getType())) {
+                addBuiltinTools(tool, builtinTools);
+                continue;
+            }
+
+            if (!isMcpTool(tool)) {
+                log.warn("Skipping tool '{}' with unsupported type '{}'", tool.getName(), tool.getType());
+                continue;
+            }
+
+            try {
+                McpClient client = getOrCreateClient(tool);
+                if (client != null) {
+                    clients.add(client);
+                }
+            } catch (Exception e) {
+                log.error("Failed to create MCP client for tool {}: {}", tool.getId(), e.getMessage());
+            }
+        }
+
+        return combineToolProviders(clients, builtinTools);
+    }
+
+    private void addBuiltinTools(McpTool tool, List<AiServiceTool> builtinTools) {
+        Object builtinTool = builtinToolRegistry.getBuiltinToolObject(tool.getName());
+        if (builtinTool == null) {
+            log.warn("Builtin tool '{}' is enabled in the database but is not registered", tool.getName());
+            return;
+        }
+
+        try {
+            List<AiServiceTool> discoveredTools = ToolService.findTools(builtinTool);
+            if (discoveredTools.isEmpty()) {
+                log.warn("Builtin tool '{}' does not contain any @Tool methods", tool.getName());
+                return;
+            }
+            builtinTools.addAll(discoveredTools);
+            log.debug("Added builtin tool: {}", tool.getName());
+        } catch (RuntimeException e) {
+            log.error("Failed to register builtin tool '{}': {}", tool.getName(), e.getMessage());
+        }
+    }
+
+    private ToolProvider combineToolProviders(List<McpClient> clients, List<AiServiceTool> builtinTools) {
+        ToolProvider mcpToolProvider = clients.isEmpty()
+            ? null
+            : McpToolProvider.builder().mcpClients(clients).build();
+
+        if (builtinTools.isEmpty()) {
+            return mcpToolProvider == null ? emptyToolProvider() : mcpToolProvider;
+        }
+
+        List<AiServiceTool> immutableBuiltinTools = List.copyOf(builtinTools);
+        if (mcpToolProvider == null) {
+            return request -> new ToolProviderResult(immutableBuiltinTools);
+        }
+
+        return request -> {
+            List<AiServiceTool> combinedTools = new ArrayList<>(immutableBuiltinTools);
+            ToolProviderResult mcpResult = mcpToolProvider.provideTools(request);
+            if (mcpResult != null && mcpResult.aiServiceTools() != null) {
+                combinedTools.addAll(mcpResult.aiServiceTools());
+            }
+            return new ToolProviderResult(combinedTools);
+        };
+    }
+
+    private ToolProvider emptyToolProvider() {
+        return request -> new ToolProviderResult(List.of());
+    }
+
+    private List<McpTool> orderByRequestedIds(List<McpTool> tools, List<Long> requestedIds) {
+        if (tools == null || tools.isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, McpTool> toolsById = new HashMap<>();
+        for (McpTool tool : tools) {
+            if (tool != null && tool.getId() != null) {
+                toolsById.put(tool.getId(), tool);
+            }
+        }
+
+        List<McpTool> orderedTools = new ArrayList<>();
+        for (Long requestedId : requestedIds) {
+            McpTool tool = toolsById.get(requestedId);
+            if (tool != null) {
+                orderedTools.add(tool);
+            }
+        }
+        return orderedTools;
+    }
+
+    private boolean isMcpTool(McpTool tool) {
+        return "LOCAL".equals(tool.getType()) || "REMOTE".equals(tool.getType());
     }
 
     /**
      * 获取或创建 MCP Client
      * 包含健康检查和失败重试逻辑
      */
-    private McpClient getOrCreateClient(Long toolId) {
+    private McpClient getOrCreateClient(McpTool tool) {
+        Long toolId = tool.getId();
+        if (toolId == null) {
+            throw new IllegalArgumentException("Tool ID is required for MCP tool: " + tool.getName());
+        }
+
         // 检查工具是否被禁用
         if (isToolDisabled(toolId)) {
             log.warn("Tool {} is temporarily disabled due to previous failures", toolId);
@@ -162,17 +276,6 @@ public class LangChain4jMcpToolProviderService {
 
         // 创建新的客户端
         return activeClients.compute(toolId, (id, existingClient) -> {
-            McpTool tool = mcpToolMapper.selectById(id);
-            if (tool == null || !McpToolStatus.isEnabled(tool.getStatus())) {
-                return null;
-            }
-
-            // 跳过内置工具（BUILTIN 类型）
-            if ("BUILTIN".equals(tool.getType())) {
-                log.debug("Skipping builtin tool: {}", tool.getName());
-                return null;
-            }
-
             try {
                 McpClient client = createMcpClient(tool);
                 // 标记工具为健康状态
@@ -253,6 +356,14 @@ public class LangChain4jMcpToolProviderService {
             return false;
         }
 
+        if (BuiltinToolRegistry.TYPE_BUILTIN.equals(tool.getType())) {
+            return builtinToolRegistry.hasTool(tool.getName());
+        }
+        if (!isMcpTool(tool)) {
+            log.warn("Cannot check tool '{}' with unsupported type '{}'", tool.getName(), tool.getType());
+            return false;
+        }
+
         try {
             // 尝试创建客户端来验证连接
             McpClient client = createMcpClient(tool);
@@ -281,7 +392,14 @@ public class LangChain4jMcpToolProviderService {
 
         Map<Long, Boolean> statusMap = new ConcurrentHashMap<>();
         for (McpTool tool : allTools) {
-            boolean isHealthy = isToolHealthy(tool.getId()) && !isToolDisabled(tool.getId());
+            boolean isHealthy;
+            if (BuiltinToolRegistry.TYPE_BUILTIN.equals(tool.getType())) {
+                isHealthy = builtinToolRegistry.hasTool(tool.getName());
+            } else if (isMcpTool(tool)) {
+                isHealthy = isToolHealthy(tool.getId()) && !isToolDisabled(tool.getId());
+            } else {
+                isHealthy = false;
+            }
             statusMap.put(tool.getId(), isHealthy);
         }
         return statusMap;
@@ -296,7 +414,9 @@ public class LangChain4jMcpToolProviderService {
         } else if ("REMOTE".equals(tool.getType())) {
             return createRemoteClient(tool);
         }
-        return null;
+        throw new IllegalArgumentException(
+            "Unsupported MCP tool type '" + tool.getType() + "' for tool '" + tool.getName() + "'"
+        );
     }
 
     /**

@@ -1,5 +1,8 @@
 package org.ruoyi.websocket.chat;
 
+import cn.dev33.satoken.session.SaSession;
+import cn.dev33.satoken.stp.StpLogic;
+import cn.dev33.satoken.stp.StpUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.ruoyi.common.core.domain.model.LoginUser;
 import org.ruoyi.common.satoken.utils.LoginHelper;
@@ -17,11 +20,8 @@ import java.util.Map;
 /**
  * 小程序对话 WS 握手拦截器。
  * <p>
- * 无权限：握手始终放行。仅尝试从握手 URL 的 Authorization 参数解析登录用户，
- * 解析成功则把 userId 放入 session attributes 供 handler 落库使用；解析失败按匿名处理。
- * <p>
- * 注意：与公共 {@code PlusWebSocketInterceptor} 不同，这里不做 clientid 一致性校验，
- * 也不抛出认证异常——对话端点对未登录用户同样开放。
+ * Authentication is mandatory. Browser clients pass the Sa-Token value in the legacy
+ * {@code Authorization} query parameter because the WebSocket API cannot set custom headers.
  *
  * @author ruoyi team
  */
@@ -35,11 +35,31 @@ public class MpChatHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                    WebSocketHandler wsHandler, Map<String, Object> attributes) {
-        // 无权限：握手始终放行，且不调用 sa-token（LoginHelper.getLoginUser 会触发 getTokenSessionByToken，
-        // 在 is-share:false 下有冻结当前 token 的副作用，导致随后 mvc 请求 401 token 已被冻结。
-        // 对话端点本就不依赖登录态，userId 留空，落库跳过）。
-        log.info("[mp-chat connect] 匿名对话连接");
-        return true;
+        String token = resolveToken(request.getURI());
+        if (token == null) {
+            log.warn("[mp-chat connect] rejected handshake without credentials");
+            return false;
+        }
+        try {
+            StpLogic logic = StpUtil.getStpLogic();
+            Object loginId = logic.getLoginIdByTokenNotThinkFreeze(token);
+            SaSession tokenSession = logic.getTokenSessionByToken(token, false);
+            Object storedPrincipal = tokenSession == null
+                ? null : tokenSession.get(LoginHelper.LOGIN_USER_KEY);
+            LoginUser loginUser = storedPrincipal instanceof LoginUser candidate ? candidate : null;
+            if (loginId == null || loginUser == null || loginUser.getUserId() == null
+                || !loginUser.getLoginId().equals(loginId.toString())) {
+                log.warn("[mp-chat connect] rejected invalid or expired credentials");
+                return false;
+            }
+            attributes.put(USER_ID_KEY, loginUser.getUserId());
+            attributes.put(LOGIN_USER_KEY, loginUser);
+            return true;
+        } catch (RuntimeException authenticationFailure) {
+            log.warn("[mp-chat connect] authentication failed: {}",
+                authenticationFailure.getClass().getSimpleName());
+            return false;
+        }
     }
 
     @Override

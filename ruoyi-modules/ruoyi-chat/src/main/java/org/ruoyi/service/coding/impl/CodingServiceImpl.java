@@ -20,6 +20,7 @@ import org.ruoyi.service.chat.AbstractChatService;
 import org.ruoyi.service.coding.CodingAgent;
 import org.ruoyi.service.coding.CodingEventChannel;
 import org.ruoyi.service.coding.CodingSseEvent;
+import org.ruoyi.service.coding.CodingWorkspaceService;
 import org.ruoyi.service.coding.ICodingService;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -27,7 +28,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -48,15 +48,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RequiredArgsConstructor
 public class CodingServiceImpl implements ICodingService {
 
-    /** 默认工作目录：直接指向 ruoyi-copilot 前端项目 */
-    private static final String DEFAULT_WORKSPACE = "D:/Project/github/ruoyi-copilot";
-
     private final IChatModelService chatModelService;
     private final ChatServiceFactory chatServiceFactory;
+    private final CodingWorkspaceService workspaceService;
     private final Map<SseEmitter, AtomicBoolean> activeEmitters = new ConcurrentHashMap<>();
 
     @Override
     public SseEmitter chat(CodingRequestBo bo, Long userId) {
+        // 在建立 SSE 和调用模型前同步拒绝非受控工作区，让调用方获得明确错误。
+        Path root = workspaceService.resolveRoot(bo.getWorkspacePath());
+
         SseEmitter emitter = new SseEmitter(1_800_000L);
         AtomicBoolean emitterActive = new AtomicBoolean(true);
         activeEmitters.put(emitter, emitterActive);
@@ -91,7 +92,6 @@ public class CodingServiceImpl implements ICodingService {
                 ChatModel chatModel = chatService.buildChatModel(modelVo);
 
                 // 2. 解析工作目录
-                Path root = resolveWorkspace(bo.getWorkspacePath());
                 Files.createDirectories(root);
 
                 // 3. new 工具实例（不走 BuiltinToolRegistry，注入会话工作目录与 channel）
@@ -137,16 +137,6 @@ public class CodingServiceImpl implements ICodingService {
         });
 
         return emitter;
-    }
-
-    /**
-     * 解析工作目录：前端显式传则用前端的，否则默认 ruoyi-copilot。
-     */
-    private Path resolveWorkspace(String workspacePath) {
-        if (StrUtil.isNotBlank(workspacePath)) {
-            return Paths.get(workspacePath).toAbsolutePath().normalize();
-        }
-        return Paths.get(DEFAULT_WORKSPACE).toAbsolutePath().normalize();
     }
 
     /**

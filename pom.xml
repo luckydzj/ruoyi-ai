@@ -43,7 +43,6 @@
         <aws.sdk.version>2.28.22</aws.sdk.version>
         <!-- SMS 配置 -->
         <sms4j.version>3.3.5</sms4j.version>
-        <!-- FastJson已移除，使用Jackson替代 -->
         <!-- 面向运行时的D-ORM依赖 -->
         <anyline.version>8.7.2-20250603</anyline.version>
         <!-- 工作流配置 -->
@@ -62,6 +61,8 @@
         <weaviate.version>1.19.6</weaviate.version>
         <dify.version>1.2.7</dify.version>
         <coze.version>0.4.2</coze.version>
+        <!-- 智谱官方 Java SDK -->
+        <zai-sdk.version>0.3.5</zai-sdk.version>
 
         <!-- gRPC 版本 - 解决 Milvus SDK 依赖冲突 -->
         <grpc.version>1.62.2</grpc.version>
@@ -342,8 +343,6 @@
             </dependency>
 
             <!-- JustAuth 的依赖配置-->
-            <!-- 排除 fastjson(存在 RCE 漏洞且已停止维护), 项目内自定义的登录类(钉钉/企业微信/gitea/maxkey/topiam)已改用 Jackson -->
-            <!-- 注意: JustAuth 内置平台类(github/gitee/qq 等)内部仍使用 fastjson, 排除后如需使用这些平台请自行覆写对应请求类 -->
             <dependency>
                 <groupId>me.zhyd.oauth</groupId>
                 <artifactId>JustAuth</artifactId>

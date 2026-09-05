@@ -28,7 +28,7 @@
         <dependency>
             <groupId>ai.z.openapi</groupId>
             <artifactId>zai-sdk</artifactId>
-            <version>0.3.5</version>
+            <version>${zai-sdk.version}</version>
         </dependency>
 
         <dependency>
@@ -126,6 +126,7 @@
             <version>${langchain4j.version}</version>
             <scope>compile</scope>
         </dependency>
+
         <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
@@ -144,8 +145,6 @@
             <artifactId>langgraph4j-langchain4j</artifactId>
             <version>${langgraph4j.version}</version>
         </dependency>
-
-
 
         <dependency>
             <groupId>org.apache.commons</groupId>

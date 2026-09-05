@@ -26,6 +26,7 @@ import org.ruoyi.domain.vo.agent.AgentVo;
 import org.ruoyi.domain.vo.knowledge.KnowledgeInfoVo;
 import org.ruoyi.factory.ChatServiceFactory;
 import org.ruoyi.service.agent.IAgentService;
+import org.ruoyi.service.chat.ChatSessionOwnershipGuard;
 import org.ruoyi.service.chat.IChatMessageService;
 import org.ruoyi.service.knowledge.IKnowledgeInfoService;
 import org.ruoyi.service.knowledge.retriever.CustomVectorRetriever;
@@ -69,6 +70,7 @@ public class MpChatWebSocketHandler extends AbstractWebSocketHandler {
     private final IKnowledgeInfoService knowledgeInfoService;
     private final KnowledgeRetrievalService knowledgeRetrievalService;
     private final IChatMessageService chatMessageService;
+    private final ChatSessionOwnershipGuard chatSessionOwnershipGuard;
     private final ObjectMapper objectMapper;
 
     @Value("${chat.default-model:}")
@@ -97,6 +99,13 @@ public class MpChatWebSocketHandler extends AbstractWebSocketHandler {
 
         Long userId = (Long) session.getAttributes().get(MpChatHandshakeInterceptor.USER_ID_KEY);
         Long sessionId = parseLong(sessionIdRaw);
+
+        try {
+            chatSessionOwnershipGuard.requireOwned(userId, sessionId);
+        } catch (IllegalArgumentException unavailable) {
+            sendError(session, "错误:对话会话不可用");
+            return;
+        }
 
         try {
             // 1. 解析智能体（若传了 agentId），取其绑定模型与 systemPrompt、知识库
